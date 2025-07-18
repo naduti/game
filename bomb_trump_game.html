@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>爆弾トランプ - プレイヤー名設定＆履歴表示</title>
+  <style>
+    body {
+      background: #f8f9fa;
+      font-family: sans-serif;
+      margin: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #circle {
+      position: relative;
+      width: 400px;
+      height: 400px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .card {
+      width: 50px;
+      height: 70px;
+      background: white;
+      border: 1px solid #333;
+      border-radius: 8px;
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 0.3s;
+    }
+    .used {
+      background: #ccc;
+      cursor: default;
+    }
+    #info {
+      margin-bottom: 20px;
+      text-align: center;
+      display: none;
+    }
+    table {
+      border-collapse: collapse;
+      width: 800px;
+      max-width: 95vw;
+      margin-top: 20px;
+      display: none;
+    }
+    th, td {
+      border: 1px solid #666;
+      padding: 8px;
+      text-align: center;
+      font-size: 14px;
+    }
+    th {
+      background-color: #ddd;
+    }
+    button {
+      margin-top: 15px;
+      padding: 8px 16px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    #player-form {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    #player-form label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: bold;
+    }
+    #player-form input {
+      padding: 6px 8px;
+      font-size: 1rem;
+      width: 200px;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>爆弾トランプ</h1>
+
+  <div id="player-form">
+    <label for="player1-name">プレイヤー1の名前</label>
+    <input type="text" id="player1-name" placeholder="プレイヤー1" />
+
+    <label for="player2-name">プレイヤー2の名前</label>
+    <input type="text" id="player2-name" placeholder="プレイヤー2" />
+
+    <button id="start-game">ゲームスタート</button>
+  </div>
+
+  <div id="circle"></div>
+
+  <div id="info">
+    <p>現在の役割: <span id="role"></span></p>
+  </div>
+
+  <table id="score-table">
+    <thead>
+      <tr>
+        <th>プレイヤー</th>
+        <th>ターン数</th>
+        <th>得点</th>
+        <th>爆弾を踏んだ回数</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td id="name1"></td>
+        <td id="turns1">0</td>
+        <td id="score1">0</td>
+        <td id="bombs1">0</td>
+      </tr>
+      <tr>
+        <td id="name2"></td>
+        <td id="turns2">0</td>
+        <td id="score2">0</td>
+        <td id="bombs2">0</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="history-title" style="display:none;">履歴（最大11ターン）</h2>
+  <table id="history-table">
+    <thead>
+      <tr>
+        <th>ターン</th>
+        <th>爆弾セットカード</th>
+        <th>選んだカード</th>
+        <th>得点増加</th>
+        <th>爆弾踏み</th>
+        <th>選んだプレイヤー</th>
+      </tr>
+    </thead>
+    <tbody>
+    </tbody>
+  </table>
+
+  <button id="reset" style="display:none;">リセット</button>
+
+  <script>
+    const circle = document.getElementById('circle');
+    const roleEl = document.getElementById('role');
+    const turns1El = document.getElementById('turns1');
+    const turns2El = document.getElementById('turns2');
+    const score1El = document.getElementById('score1');
+    const score2El = document.getElementById('score2');
+    const bombs1El = document.getElementById('bombs1');
+    const bombs2El = document.getElementById('bombs2');
+    const historyTableBody = document.querySelector('#history-table tbody');
+    const resetBtn = document.getElementById('reset');
+    const playerForm = document.getElementById('player-form');
+    const startBtn = document.getElementById('start-game');
+    const name1Td = document.getElementById('name1');
+    const name2Td = document.getElementById('name2');
+    const scoreTable = document.getElementById('score-table');
+    const historyTable = document.getElementById('history-table');
+    const historyTitle = document.getElementById('history-title');
+    const infoDiv = document.getElementById('info');
+
+    let players = [
+      { score: 0, bombs: 0, turns: 0, name: 'プレイヤー1' },
+      { score: 0, bombs: 0, turns: 0, name: 'プレイヤー2' }
+    ];
+
+    let currentSetter = 0; // 仕掛け人プレイヤー番号 0 or 1
+    let isSetup = true;    // 爆弾セット待ちかどうか
+    let bombIndex = -1;
+    let used = Array(12).fill(false);
+    let gameEnded = false;
+
+    // 履歴配列
+    // 各要素：{turn, bombSetCard, chosenCard, pointGained, bombStepped, choosingPlayer}
+    const history = [];
+
+    function renderCards() {
+      circle.innerHTML = '';
+      const radius = 170;
+      const centerX = 175;
+      const centerY = 175;
+      for (let i = 0; i < 12; i++) {
+        const angle = (Math.PI * 2 * ((i + 10) % 12)) / 12;
+        const x = Math.cos(angle) * radius + centerX;
+        const y = Math.sin(angle) * radius + centerY;
+
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.left = `${x}px`;
+        card.style.top = `${y}px`;
+        card.textContent = i + 1;
+
+        if (used[i]) {
+          card.classList.add('used');
+          card.style.cursor = 'default';
+        } else {
+          card.style.cursor = 'pointer';
+          card.addEventListener('click', () => handleClick(i));
+        }
+
+        circle.appendChild(card);
+      }
+    }
+
+    function updateInfo() {
+      turns1El.textContent = players[0].turns;
+      turns2El.textContent = players[1].turns;
+      score1El.textContent = players[0].score;
+      score2El.textContent = players[1].score;
+      bombs1El.textContent = players[0].bombs;
+      bombs2El.textContent = players[1].bombs;
+
+      if (gameEnded) {
+        // 終了後は役割表示は勝者名を表示済みのため何もしない
+        return;
+      }
+
+      const setterPlayerNum = currentSetter + 1;
+      const chooserPlayerNum = 3 - setterPlayerNum;
+      if (isSetup) {
+        roleEl.textContent = `仕掛け人（${players[currentSetter].name}） - 爆弾セット待ち`;
+      } else {
+        roleEl.textContent = `選ぶ人（${players[chooserPlayerNum -1].name}） - カード選択中`;
+      }
+    }
+
+    function renderHistory() {
+      historyTableBody.innerHTML = '';
+      history.slice(-11).forEach((entry) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${entry.turn}</td>
+          <td>${entry.bombSetCard}</td>
+          <td>${entry.chosenCard}</td>
+          <td>${entry.pointGained}</td>
+          <td>${entry.bombStepped ? 'はい' : 'いいえ'}</td>
+          <td>${players[entry.choosingPlayer-1].name}</td>
+        `;
+        historyTableBody.appendChild(tr);
+      });
+    }
+
+    function showWinner(winnerIndex) {
+      // 勝利者の名前に 🎉 を付ける
+      name1Td.textContent = players[0].name;
+      name2Td.textContent = players[1].name;
+      if (winnerIndex === 0) {
+        name1Td.textContent += " 🎉";
+      } else if (winnerIndex === 1) {
+        name2Td.textContent += " 🎉";
+      }
+
+      // 役割欄に勝利メッセージ表示
+      roleEl.textContent = `ゲーム終了！🎉 勝者: ${players[winnerIndex].name}`;
+
+      // ゲーム終了フラグを立てる
+      gameEnded = true;
+    }
+
+    function checkGameEnd() {
+      for (let i = 0; i < 2; i++) {
+        if (players[i].score >= 40) {
+          setTimeout(() => {
+            alert(`🎉 ${players[i].name}の勝利！40ポイント到達！`);
+            showWinner(i);
+          }, 100);
+          return true;
+        }
+        if (players[i].bombs >= 3) {
+          setTimeout(() => {
+            alert(`💥 ${players[i].name}が爆弾3つでゲームオーバー！`);
+            showWinner(1 - i);  // 敗北したプレイヤーの反対が勝ち
+          }, 100);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function handleClick(index) {
+      if (used[index]) return;
+      if (gameEnded) return;
+
+      if (isSetup) {
+        bombIndex = index;
+        isSetup = false;
+        updateInfo();
+        alert(`${players[currentSetter].name}が${index + 1}に爆弾を仕掛けました。相手のプレイヤーが選んでください。`);
+      } else {
+        const chooser = 1 - currentSetter;
+
+        let pointGained = 0;
+        let bombStepped = false;
+
+        if (index === bombIndex) {
+          players[chooser].bombs++;
+          bombStepped = true;
+          players[chooser].score = 0;
+          alert(`💣 ${players[chooser].name}が爆弾を踏みました！得点が0になります。`);
+        } else {
+          pointGained = index + 1;
+          players[chooser].score += pointGained;
+          used[index] = true;
+          alert(`✅ ${players[chooser].name}は安全！${pointGained}ポイント獲得！`);
+        }
+        players[chooser].turns++;
+
+        history.push({
+          turn: players[chooser].turns,
+          bombSetCard: bombIndex + 1,
+          chosenCard: index + 1,
+          pointGained: pointGained,
+          bombStepped: bombStepped,
+          choosingPlayer: chooser + 1
+        });
+
+        currentSetter = chooser;
+        isSetup = true;
+
+        updateInfo();
+        renderCards();
+        renderHistory();
+
+        if (!checkGameEnd()) {
+          alert(`次のターン: ${players[currentSetter].name}が仕掛け人になります。`);
+        }
+      }
+      renderCards();
+      updateInfo();
+    }
+
+    resetBtn.onclick = () => {
+      players.forEach(p => {
+        p.score = 0;
+        p.bombs = 0;
+        p.turns = 0;
+      });
+      currentSetter = 0;
+      isSetup = true;
+      bombIndex = -1;
+      used = Array(12).fill(false);
+      history.length = 0;
+      gameEnded = false;
+
+      updateInfo();
+      renderCards();
+      renderHistory();
+      resetBtn.style.display = 'none';
+      circle.style.display = 'none';
+      infoDiv.style.display = 'none';
+      scoreTable.style.display = 'none';
+      historyTitle.style.display = 'none';
+      historyTable.style.display = 'none';
+
+      // 名前を元に戻す
+      name1Td.textContent = players[0].name;
+      name2Td.textContent = players[1].name;
+
+      playerForm.style.display = 'block';
+    };
+
+    startBtn.onclick = () => {
+      const p1 = document.getElementById('player1-name').value.trim();
+      const p2 = document.getElementById('player2-name').value.trim();
+
+      if (!p1 || !p2) {
+        alert('両方のプレイヤー名を入力してください。');
+        return;
+      }
+
+      players[0].name = p1;
+      players[1].name = p2;
+
+      name1Td.textContent = p1;
+      name2Td.textContent = p2;
+
+      playerForm.style.display = 'none';
+      circle.style.display = 'block';
+      infoDiv.style.display = 'block';
+      scoreTable.style.display = 'table';
+      historyTitle.style.display = 'block';
+      historyTable.style.display = 'table';
+      resetBtn.style.display = 'inline-block';
+
+      // 初期化して描画
+      players.forEach(p => {
+        p.score = 0;
+        p.bombs = 0;
+        p.turns = 0;
+      });
+      currentSetter = 0;
+      isSetup = true;
+      bombIndex = -1;
+      used = Array(12).fill(false);
+      history.length = 0;
+      gameEnded = false;
+
+      updateInfo();
+      renderCards();
+      renderHistory();
+    };
+  </script>
+</body>
+</html>
